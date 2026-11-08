@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "hitbeacons",
+  "version": "${version}",
+  "name": "Player Hit Beacons",
+  "description": "Client-side PvP helper: every player you hit gets their own colored, see-through-walls beacon for 20 seconds.",
+  "authors": ["You"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.hitbeacons.HitBeaconsClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.1",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
