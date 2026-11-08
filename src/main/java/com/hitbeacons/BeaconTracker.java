@@ -14,23 +14,16 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.world.entity.player.Player;
 
-/**
- * Tracks every player you hit. Each player (keyed by UUID) has its own color slot and its own
- * independent 20 second timer. All access happens on the client main thread.
- */
 public final class BeaconTracker {
-	/** How long a beacon lives after the LAST successful hit on that player. */
 	public static final long BEACON_DURATION_NANOS = 20L * 1_000_000_000L;
 
 	/**
-	 * true  = only count a swing as a hit once the target's hurt animation proves damage landed
-	 *         (ignores misses, blocked hits and hits during invulnerability frames).
-	 * false = mark the player the moment you attack them.
+	 * false = mark a player the moment you swing at them (works on every player).
+	 * true  = only mark once the target was visibly hurt.
 	 */
-	public static final boolean REQUIRE_CONFIRMED_DAMAGE = true;
+	public static final boolean REQUIRE_CONFIRMED_DAMAGE = false;
 
-	/** Ticks (20/s) to wait for the server to confirm damage after a swing. Covers ~600 ms ping. */
-	private static final int CONFIRM_WINDOW_TICKS = 12;
+	private static final int CONFIRM_WINDOW_TICKS = 16;
 
 	public static final class Mark {
 		public final UUID id;
@@ -52,31 +45,47 @@ public final class BeaconTracker {
 	}
 
 	private static final class Pending {
-		int lastHurtTime;
 		int ticksLeft;
 	}
 
 	private final Map<UUID, Mark> marks = new LinkedHashMap<>();
 	private final Map<UUID, Pending> pending = new HashMap<>();
+	private boolean enabled = true;
 
-	/** Called when the local player swings at another player. */
+	public boolean isEnabled() {
+		return enabled;
+	}
+
+	/** Flips beacons on/off. Turning off clears all beacons. Returns the new state. */
+	public boolean toggle() {
+		enabled = !enabled;
+		if (!enabled) {
+			clear();
+		}
+		return enabled;
+	}
+
 	public void onAttack(AbstractClientPlayer target) {
+		if (!enabled) {
+			return;
+		}
 		UUID id = target.getUUID();
 		if (!REQUIRE_CONFIRMED_DAMAGE) {
 			markHit(id, System.nanoTime());
 			return;
 		}
 		Pending p = new Pending();
-		p.lastHurtTime = target.hurtTime;
 		p.ticksLeft = CONFIRM_WINDOW_TICKS;
 		pending.put(id, p);
 	}
 
-	/** Called once per client tick. */
 	public void tick(Minecraft mc) {
 		ClientLevel level = mc.level;
 		if (level == null || mc.player == null) {
 			clear();
+			return;
+		}
+		if (!enabled) {
 			return;
 		}
 		long now = System.nanoTime();
@@ -90,14 +99,11 @@ public final class BeaconTracker {
 				it.remove();
 				continue;
 			}
-			int hurt = target.hurtTime;
-			if (hurt > p.lastHurtTime) {
-				// hurtTime jumped up: a new hit just landed on this player.
+			if (target.hurtTime >= 9) {
 				markHit(e.getKey(), now);
 				it.remove();
 				continue;
 			}
-			p.lastHurtTime = hurt;
 			if (--p.ticksLeft <= 0) {
 				it.remove();
 			}
@@ -109,7 +115,6 @@ public final class BeaconTracker {
 	private void markHit(UUID id, long now) {
 		Mark existing = marks.get(id);
 		if (existing != null) {
-			// Same player again: reset ONLY this player's timer, keep their color.
 			existing.expiresAt = now + BEACON_DURATION_NANOS;
 			return;
 		}
